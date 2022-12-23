@@ -1,0 +1,19 @@
+[package]
+name = "rapier-ex"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = "0.9.1"
+bevy_rapier3d = "0.19.0"
+
+simula_core = { git = "https://github.com/Simbotic/simula.git", branch = "main" }
+simula_camera = { git = "https://github.com/Simbotic/simula.git", branch = "main" }
+simula_viz = { git = "https://github.com/Simbotic/simula.git", branch = "main" }
+simula_action = { git = "https://github.com/Simbotic/simula.git", branch = "main" }
+simula_video = { git = "https://github.com/Simbotic/simula.git", branch = "main" }
+
+# Simula only works with egui 17
+bevy_egui = "0.17.0"
