@@ -1,6 +1,8 @@
 use bevy::{core_pipeline::clear_color::ClearColorConfig, prelude::*, render::view::RenderLayers};
 use bevy_egui::EguiPlugin;
+use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_rapier3d::prelude::*;
+use marks::{Ball, Floor, GameCamera, Player};
 use simula_action::ActionPlugin;
 use simula_camera::{flycam::*, orbitcam::*};
 use simula_video::rt;
@@ -9,27 +11,30 @@ use simula_viz::{
     lines::{LineMesh, LinesMaterial, LinesPlugin},
 };
 
+mod marks;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
+        .add_plugin(WorldInspectorPlugin::default())
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
-        //   .add_plugin(RapierDebugRenderPlugin::default())
-        .add_plugin(OrbitCameraPlugin)
-        .add_plugin(FlyCameraPlugin)
+        // .add_plugin(RapierDebugRenderPlugin::default())
+        //  .add_plugin(OrbitCameraPlugin)
+        // .add_plugin(FlyCameraPlugin)
         .add_plugin(ActionPlugin)
         .add_plugin(GridPlugin)
         .add_plugin(LinesPlugin)
         .add_startup_system(setup_system)
         .add_startup_system(setup_physics)
-        // .add_system(print_ball_altitude)
+        .add_system(move_player)
+        //   .add_system(camera_follow)
         .run();
 }
 
 fn setup_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut lines_materials: ResMut<Assets<LinesMaterial>>,
     mut images: ResMut<Assets<Image>>,
     line_mesh: Res<LineMesh>,
@@ -53,30 +58,30 @@ fn setup_system(
 
     // camera
     let rt_image = images.add(rt::common_render_target_image(UVec2::new(256, 256)));
-    commands
-        .spawn((
-            Camera3dBundle {
-                transform: Transform::from_xyz(0.0, 0.0, -10.0)
-                    .looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
+    commands.spawn((
+        Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 0.0, -10.0)
+                .looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
+            ..default()
+        },
+        // RenderLayers::all(),
+        // FlyCamera::default(),
+        GameCamera,
+    ));
+    /*         .with_children(|parent| {
+        parent.spawn((Camera3dBundle {
+            camera_3d: Camera3d {
+                clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..default()
             },
-            RenderLayers::all(),
-            FlyCamera::default(),
-        ))
-        .with_children(|parent| {
-            parent.spawn((Camera3dBundle {
-                camera_3d: Camera3d {
-                    clear_color: ClearColorConfig::Custom(Color::BLACK),
-                    ..default()
-                },
-                camera: Camera {
-                    priority: -1,
-                    target: bevy::render::camera::RenderTarget::Image(rt_image.clone()),
-                    ..default()
-                },
+            camera: Camera {
+                priority: -1,
+                target: bevy::render::camera::RenderTarget::Image(rt_image.clone()),
                 ..default()
-            },));
-        });
+            },
+            ..default()
+        },));
+    }); */
 
     // grid
     let grid_color = Color::rgb(0.01, 0.01, 0.01);
@@ -92,10 +97,11 @@ fn setup_system(
             mesh: meshes.add(line_mesh.clone()),
             material: lines_materials.add(LinesMaterial {}),
             transform: Transform::from_xyz(0.0, -2.0, 0.0),
-
             ..default()
         },
         Collider::cuboid(10., 0., 10.),
+        RigidBody::Fixed,
+        Name::new("grid"),
     ));
 }
 
@@ -103,58 +109,102 @@ fn setup_physics(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
     asset_server: Res<AssetServer>,
 ) {
-    {
-        let ball_texture = asset_server.load("textures/texture2.png");
-        // create a bouncing ball
-        commands.spawn((
-            Collider::ball(0.5),
-            RigidBody::Dynamic,
-            Restitution::coefficient(0.7),
-            PbrBundle {
-                mesh: meshes.add(Mesh::from(shape::Icosphere {
-                    radius: 0.5,
-                    subdivisions: 20,
-                })),
-                material: materials.add(StandardMaterial {
-                    base_color_texture: Some(ball_texture),
-                    ..default()
-                }),
-                transform: Transform::from_xyz(0.0, 4.0, 0.0),
+    // create a bouncing ball
+    let ball_texture = asset_server.load("textures/ball/ball.png");
+    commands.spawn((
+        Collider::ball(0.5),
+        RigidBody::Dynamic,
+        Restitution::coefficient(0.7),
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::UVSphere {
+                radius: 0.5,
                 ..default()
-            },
-        ));
-    }
+            })),
+            material: materials.add(StandardMaterial {
+                base_color_texture: Some(ball_texture),
+                alpha_mode: AlphaMode::Blend,
+                unlit: true,
+                ..default()
+            }),
+            transform: Transform::from_xyz(0.0, 4.0, 0.0),
+            ..default()
+        },
+        Ball,
+        Name::new("ball"),
+    ));
 
-    {
-        let ball_texture = asset_server.load("textures/texture.png");
-        // create a bouncing ball
-        commands.spawn((
-            Collider::ball(0.5),
-            RigidBody::Dynamic,
-            Restitution::coefficient(0.7),
-            PbrBundle {
-                mesh: meshes.add(Mesh::from(shape::Icosphere {
-                    radius: 0.5,
-                    subdivisions: 20,
-                })),
-                material: materials.add(StandardMaterial {
-                    base_color_texture: Some(ball_texture),
-                    ..default()
-                }),
-                transform: Transform::from_xyz(2.0, 4.0, 0.0),
+    // create a static floor
+    commands.spawn((
+        Collider::cuboid(10., 0.1, 10.),
+        RigidBody::Fixed,
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(10., 0.1, 20.))),
+            material: materials.add(StandardMaterial {
+                base_color: Color::BLACK.into(),
+
                 ..default()
-            },
-        ));
-    }
+            }),
+            transform: Transform::from_xyz(0.0, -2.0, 0.0),
+            ..default()
+        },
+        Floor,
+        Name::new("floor"),
+    ));
+
+    // spawn a player capsule
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Capsule::default())),
+            material: materials.add(StandardMaterial {
+                base_color: Color::FUCHSIA,
+                ..default()
+            }),
+            transform: Transform::from_xyz(0.0, 0.5, -8.0),
+            ..default()
+        },
+        Collider::capsule_y(0.5, 0.5),
+        RigidBody::KinematicPositionBased,
+        Restitution::coefficient(2.0),
+        KinematicCharacterController::default(),
+        Player,
+        Name::new("player"),
+    ));
 }
 
-// a query that will print the ball altitude every frame
-/* fn print_ball_altitude(query: Query<&Transform, With<RigidBody>>) {
-    if let Ok(ball_transform) = query.get_single() {
-        println!("Ball altitude: {}", ball_transform.translation.y);
+fn move_player(
+    mut player_controller: Query<&mut KinematicCharacterController, With<Player>>,
+    keyboard: Res<Input<KeyCode>>,
+    time: Res<Time>,
+) {
+    let mut player_tr = player_controller.single_mut();
+    let mut direction = Vec3::new(0.0, -1.5, 0.0);
+
+    if keyboard.pressed(KeyCode::W) {
+        direction += Vec3::Z;
+    }
+    if keyboard.pressed(KeyCode::S) {
+        direction -= Vec3::Z;
+    }
+    if keyboard.pressed(KeyCode::A) {
+        direction += Vec3::X;
+    }
+    if keyboard.pressed(KeyCode::D) {
+        direction -= Vec3::X;
+    }
+
+    player_tr.translation = Some(direction * time.delta_seconds() * 1.5);
+}
+
+fn camera_follow(
+    mut camera_query: Query<&mut Transform, (With<GameCamera>, Without<Player>)>,
+    player_query: Query<&KinematicCharacterController, (With<Player>, Without<GameCamera>)>,
+) {
+    let mut cam_transform = camera_query.single_mut();
+    if let Ok(player_controller) = player_query.get_single() {
+        if let Some(translation) = player_controller.translation {
+            cam_transform.translation = translation;
+        }
     }
 }
- */
