@@ -1,7 +1,15 @@
+use std::{
+    f32::consts::{FRAC_PI_2, FRAC_PI_3},
+    time::Duration,
+};
+
 use bevy::{core_pipeline::clear_color::ClearColorConfig, prelude::*, render::view::RenderLayers};
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::WorldInspectorPlugin;
-use bevy_rapier3d::prelude::*;
+use bevy_rapier3d::{
+    prelude::*,
+    rapier::prelude::{RigidBodyBuilder, RigidBodyType},
+};
 use marks::{Ball, Floor, GameCamera, Player};
 use simula_action::ActionPlugin;
 use simula_camera::{flycam::*, orbitcam::*};
@@ -31,6 +39,9 @@ fn main() {
         //   .add_system(camera_follow)
         .run();
 }
+
+#[derive(Resource)]
+struct KickTimer(Timer);
 
 fn setup_system(
     mut commands: Commands,
@@ -103,6 +114,9 @@ fn setup_system(
         RigidBody::Fixed,
         Name::new("grid"),
     ));
+
+    // kick timer resource
+    commands.insert_resource(KickTimer(Timer::from_seconds(0.25, TimerMode::Once)));
 }
 
 fn setup_physics(
@@ -113,10 +127,15 @@ fn setup_physics(
 ) {
     // create a bouncing ball
     let ball_texture = asset_server.load("textures/ball/ball.png");
+
     commands.spawn((
         Collider::ball(0.5),
+        Restitution::coefficient(1.0),
         RigidBody::Dynamic,
-        Restitution::coefficient(0.7),
+        Damping {
+            angular_damping: 1.0,
+            linear_damping: 0.5,
+        },
         PbrBundle {
             mesh: meshes.add(Mesh::from(shape::UVSphere {
                 radius: 0.5,
@@ -143,7 +162,6 @@ fn setup_physics(
             mesh: meshes.add(Mesh::from(shape::Box::new(10., 0.1, 20.))),
             material: materials.add(StandardMaterial {
                 base_color: Color::BLACK.into(),
-
                 ..default()
             }),
             transform: Transform::from_xyz(0.0, -2.0, 0.0),
@@ -166,7 +184,7 @@ fn setup_physics(
         },
         Collider::capsule_y(0.5, 0.5),
         RigidBody::KinematicPositionBased,
-        Restitution::coefficient(2.0),
+        Restitution::coefficient(1.5),
         KinematicCharacterController::default(),
         Player,
         Name::new("player"),
@@ -174,11 +192,12 @@ fn setup_physics(
 }
 
 fn move_player(
-    mut player_controller: Query<&mut KinematicCharacterController, With<Player>>,
+    mut player_query: Query<(&mut KinematicCharacterController, &mut Transform), With<Player>>,
     keyboard: Res<Input<KeyCode>>,
     time: Res<Time>,
+    mut kick_timer: ResMut<KickTimer>,
 ) {
-    let mut player_tr = player_controller.single_mut();
+    let (mut player_ctrl, mut player_tf) = player_query.single_mut();
     let mut direction = Vec3::new(0.0, -1.5, 0.0);
 
     if keyboard.pressed(KeyCode::W) {
@@ -194,7 +213,20 @@ fn move_player(
         direction -= Vec3::X;
     }
 
-    player_tr.translation = Some(direction * time.delta_seconds() * 1.5);
+    if keyboard.just_pressed(KeyCode::Space) {
+        player_tf.rotate_x(-FRAC_PI_3);
+        kick_timer.0.reset();
+    }
+
+    kick_timer
+        .0
+        .tick(Duration::from_secs_f32(time.delta_seconds()));
+
+    if kick_timer.0.just_finished() && player_tf.rotation.x < 0. {
+        player_tf.rotate_x(FRAC_PI_3);
+    }
+
+    player_ctrl.translation = Some(direction * time.delta_seconds() * 2.5);
 }
 
 fn camera_follow(
