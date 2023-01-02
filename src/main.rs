@@ -1,22 +1,16 @@
-use std::{
-    f32::consts::{FRAC_PI_2, FRAC_PI_3},
-    time::Duration,
-};
-
-use bevy::{core_pipeline::clear_color::ClearColorConfig, prelude::*, render::view::RenderLayers};
+use bevy::{prelude::*, render::view::RenderLayers};
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::WorldInspectorPlugin;
-use bevy_rapier3d::{
-    prelude::*,
-    rapier::prelude::{RigidBodyBuilder, RigidBodyType},
-};
-use marks::{Ball, Floor, GameCamera, Player};
-use simula_action::ActionPlugin;
-use simula_camera::{flycam::*, orbitcam::*};
-use simula_video::rt;
+use bevy_rapier3d::prelude::*;
+use marks::{Ball, Floor, GameCamera, Player, PlayerCamera};
 use simula_viz::{
+    follow_ui::FollowUICamera,
     grid::{Grid, GridBundle, GridPlugin},
     lines::{LineMesh, LinesMaterial, LinesPlugin},
+};
+use std::{
+    f32::consts::{FRAC_PI_2, FRAC_PI_3, PI},
+    time::Duration,
 };
 
 mod marks;
@@ -28,15 +22,12 @@ fn main() {
         .add_plugin(WorldInspectorPlugin::default())
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
         // .add_plugin(RapierDebugRenderPlugin::default())
-        //  .add_plugin(OrbitCameraPlugin)
-        // .add_plugin(FlyCameraPlugin)
-        .add_plugin(ActionPlugin)
         .add_plugin(GridPlugin)
         .add_plugin(LinesPlugin)
         .add_startup_system(setup_system)
         .add_startup_system(setup_physics)
         .add_system(move_player)
-        //   .add_system(camera_follow)
+        .add_system(player_kick)
         .run();
 }
 
@@ -47,7 +38,6 @@ fn setup_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut lines_materials: ResMut<Assets<LinesMaterial>>,
-    mut images: ResMut<Assets<Image>>,
     line_mesh: Res<LineMesh>,
 ) {
     // lights
@@ -55,7 +45,6 @@ fn setup_system(
         color: Color::rgb(0.9, 1.0, 1.0),
         brightness: 0.14,
     });
-
     commands.spawn(PointLightBundle {
         point_light: PointLight {
             intensity: 3000.,
@@ -68,31 +57,14 @@ fn setup_system(
     });
 
     // camera
-    let rt_image = images.add(rt::common_render_target_image(UVec2::new(256, 256)));
-    commands.spawn((
+    /*     commands.spawn((
         Camera3dBundle {
             transform: Transform::from_xyz(0.0, 0.0, -10.0)
                 .looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
             ..default()
         },
-        // RenderLayers::all(),
-        // FlyCamera::default(),
         GameCamera,
-    ));
-    /*         .with_children(|parent| {
-        parent.spawn((Camera3dBundle {
-            camera_3d: Camera3d {
-                clear_color: ClearColorConfig::Custom(Color::BLACK),
-                ..default()
-            },
-            camera: Camera {
-                priority: -1,
-                target: bevy::render::camera::RenderTarget::Image(rt_image.clone()),
-                ..default()
-            },
-            ..default()
-        },));
-    }); */
+    )); */
 
     // grid
     let grid_color = Color::rgb(0.01, 0.01, 0.01);
@@ -110,8 +82,6 @@ fn setup_system(
             transform: Transform::from_xyz(0.0, -2.0, 0.0),
             ..default()
         },
-        Collider::cuboid(10., 0., 10.),
-        RigidBody::Fixed,
         Name::new("grid"),
     ));
 
@@ -157,7 +127,6 @@ fn setup_physics(
     // create a static floor
     commands.spawn((
         Collider::cuboid(10., 0.1, 10.),
-        RigidBody::Fixed,
         PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Box::new(10., 0.1, 20.))),
             material: materials.add(StandardMaterial {
@@ -172,32 +141,47 @@ fn setup_physics(
     ));
 
     // spawn a player capsule
-    commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Capsule::default())),
-            material: materials.add(StandardMaterial {
-                base_color: Color::FUCHSIA,
+    commands
+        .spawn((
+            PbrBundle {
+                mesh: meshes.add(Mesh::from(shape::Capsule::default())),
+                material: materials.add(StandardMaterial {
+                    base_color: Color::FUCHSIA,
+                    ..default()
+                }),
+                transform: Transform::from_xyz(0.0, 0.5, -8.0),
                 ..default()
-            }),
-            transform: Transform::from_xyz(0.0, 0.5, -8.0),
-            ..default()
-        },
-        Collider::capsule_y(0.5, 0.5),
-        RigidBody::KinematicPositionBased,
-        Restitution::coefficient(1.5),
-        KinematicCharacterController::default(),
-        Player,
-        Name::new("player"),
-    ));
+            },
+            Collider::capsule_y(0.5, 0.5),
+            RigidBody::KinematicPositionBased,
+            Restitution::coefficient(1.5),
+            KinematicCharacterController {
+                autostep: None,
+                ..default()
+            },
+            Player,
+            Name::new("player"),
+            RenderLayers::all(),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Camera3dBundle {
+                    transform: Transform::from_xyz(0., 0.2, 0.).looking_at(Vec3::Z, Vec3::Y),
+
+                    ..default()
+                },
+                PlayerCamera,
+                Name::new("PlayerCamera"),
+            ));
+        });
 }
 
 fn move_player(
-    mut player_query: Query<(&mut KinematicCharacterController, &mut Transform), With<Player>>,
+    mut player_query: Query<&mut KinematicCharacterController, With<Player>>,
     keyboard: Res<Input<KeyCode>>,
     time: Res<Time>,
-    mut kick_timer: ResMut<KickTimer>,
 ) {
-    let (mut player_ctrl, mut player_tf) = player_query.single_mut();
+    let mut player_ctrl = player_query.single_mut();
     let mut direction = Vec3::new(0.0, -1.5, 0.0);
 
     if keyboard.pressed(KeyCode::W) {
@@ -213,30 +197,31 @@ fn move_player(
         direction -= Vec3::X;
     }
 
-    if keyboard.just_pressed(KeyCode::Space) {
-        player_tf.rotate_x(-FRAC_PI_3);
-        kick_timer.0.reset();
-    }
+    player_ctrl.translation = Some(direction * time.delta_seconds() * 2.5);
+}
+
+fn player_kick(
+    mut player_query: Query<&mut Transform, With<Player>>,
+    mut camera_query: Query<&mut Transform, (With<PlayerCamera>, Without<Player>)>,
+    mut kick_timer: ResMut<KickTimer>,
+    keyboard: Res<Input<KeyCode>>,
+    time: Res<Time>,
+) {
+    let mut player_tf = player_query.single_mut();
+    let mut camera_tf = camera_query.single_mut();
 
     kick_timer
         .0
         .tick(Duration::from_secs_f32(time.delta_seconds()));
 
-    if kick_timer.0.just_finished() && player_tf.rotation.x < 0. {
-        player_tf.rotate_x(FRAC_PI_3);
+    if keyboard.just_pressed(KeyCode::Space) {
+        player_tf.rotate_x(-FRAC_PI_3);
+        camera_tf.rotate_x(FRAC_PI_2);
+        kick_timer.0.reset();
     }
 
-    player_ctrl.translation = Some(direction * time.delta_seconds() * 2.5);
-}
-
-fn camera_follow(
-    mut camera_query: Query<&mut Transform, (With<GameCamera>, Without<Player>)>,
-    player_query: Query<&KinematicCharacterController, (With<Player>, Without<GameCamera>)>,
-) {
-    let mut cam_transform = camera_query.single_mut();
-    if let Ok(player_controller) = player_query.get_single() {
-        if let Some(translation) = player_controller.translation {
-            cam_transform.translation = translation;
-        }
+    if kick_timer.0.just_finished() && player_tf.rotation.x < 0.0 {
+        player_tf.rotate_x(FRAC_PI_3);
+        camera_tf.rotate_x(-FRAC_PI_2);
     }
 }
