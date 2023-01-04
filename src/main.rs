@@ -2,18 +2,17 @@ use bevy::{prelude::*, render::view::RenderLayers};
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_rapier3d::prelude::*;
-use marks::{Ball, Floor, GameCamera, Player, PlayerCamera};
+use marks::{Ball, Floor, GameCamera, Player};
 use simula_viz::{
-    follow_ui::FollowUICamera,
     grid::{Grid, GridBundle, GridPlugin},
     lines::{LineMesh, LinesMaterial, LinesPlugin},
 };
-use std::{
-    f32::consts::{FRAC_PI_2, FRAC_PI_3, PI},
-    time::Duration,
-};
+use std::{f32::consts::FRAC_PI_3, time::Duration};
 
 mod marks;
+
+const BOARD_DIM: (f32, f32, f32) = (10.0, 0.1, 20.0);
+const GOAL_GAP: f32 = 2.0;
 
 fn main() {
     App::new()
@@ -21,7 +20,7 @@ fn main() {
         .add_plugin(EguiPlugin)
         .add_plugin(WorldInspectorPlugin::default())
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
-        // .add_plugin(RapierDebugRenderPlugin::default())
+        .add_plugin(RapierDebugRenderPlugin::default())
         .add_plugin(GridPlugin)
         .add_plugin(LinesPlugin)
         .add_startup_system(setup_system)
@@ -47,24 +46,23 @@ fn setup_system(
     });
     commands.spawn(PointLightBundle {
         point_light: PointLight {
-            intensity: 3000.,
+            intensity: 6000.,
             range: 100.,
             shadows_enabled: true,
             ..default()
         },
-        transform: Transform::from_xyz(1.5, 1.5, -2.5),
+        transform: Transform::from_xyz(-BOARD_DIM.0, 1.5, BOARD_DIM.2 * 0.5),
         ..default()
     });
 
     // camera
-    /*     commands.spawn((
+    commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, -10.0)
-                .looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
+            transform: Transform::from_xyz(-2.5, 5.0, -25.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         },
         GameCamera,
-    )); */
+    ));
 
     // grid
     let grid_color = Color::rgb(0.01, 0.01, 0.01);
@@ -126,9 +124,13 @@ fn setup_physics(
 
     // create a static floor
     commands.spawn((
-        Collider::cuboid(10., 0.1, 10.),
+        Collider::cuboid(BOARD_DIM.0 / 2.0, BOARD_DIM.1 / 2.0, BOARD_DIM.2 / 2.0),
         PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Box::new(10., 0.1, 20.))),
+            mesh: meshes.add(Mesh::from(shape::Box::new(
+                BOARD_DIM.0,
+                BOARD_DIM.1,
+                BOARD_DIM.2,
+            ))),
             material: materials.add(StandardMaterial {
                 base_color: Color::BLACK.into(),
                 ..default()
@@ -141,39 +143,54 @@ fn setup_physics(
     ));
 
     // spawn a player capsule
-    commands
-        .spawn((
-            PbrBundle {
-                mesh: meshes.add(Mesh::from(shape::Capsule::default())),
-                material: materials.add(StandardMaterial {
-                    base_color: Color::FUCHSIA,
-                    ..default()
-                }),
-                transform: Transform::from_xyz(0.0, 0.5, -8.0),
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Capsule::default())),
+            material: materials.add(StandardMaterial {
+                base_color: Color::FUCHSIA,
                 ..default()
-            },
-            Collider::capsule_y(0.5, 0.5),
-            RigidBody::KinematicPositionBased,
-            Restitution::coefficient(1.5),
-            KinematicCharacterController {
-                autostep: None,
-                ..default()
-            },
-            Player,
-            Name::new("player"),
-            RenderLayers::all(),
-        ))
-        .with_children(|parent| {
-            parent.spawn((
-                Camera3dBundle {
-                    transform: Transform::from_xyz(0., 0.2, 0.).looking_at(Vec3::Z, Vec3::Y),
+            }),
+            transform: Transform::from_xyz(0.0, 0.5, -(BOARD_DIM.2 / 2.0) + 0.5),
+            ..default()
+        },
+        Collider::capsule_y(0.5, 0.5),
+        RigidBody::KinematicPositionBased,
+        Restitution::coefficient(1.5),
+        KinematicCharacterController {
+            autostep: None,
+            ..default()
+        },
+        Player,
+        Name::new("player"),
+    ));
 
-                    ..default()
-                },
-                PlayerCamera,
-                Name::new("PlayerCamera"),
-            ));
-        });
+    // spawn a goal box
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 1.0))),
+            material: materials.add(StandardMaterial {
+                base_color: Color::RED,
+                ..default()
+            }),
+            transform: Transform::from_xyz(-GOAL_GAP, -1.5, (BOARD_DIM.2 / 2.0) - 1.0),
+            ..default()
+        },
+        RigidBody::Fixed,
+        Name::new("EnemyGoalRight"),
+    ));
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 1.0))),
+            material: materials.add(StandardMaterial {
+                base_color: Color::RED,
+                ..default()
+            }),
+            transform: Transform::from_xyz(GOAL_GAP, -1.5, (BOARD_DIM.2 / 2.0) - 1.0),
+            ..default()
+        },
+        RigidBody::Fixed,
+        Name::new("EnemyGoalLeft"),
+    ));
 }
 
 fn move_player(
@@ -197,18 +214,16 @@ fn move_player(
         direction -= Vec3::X;
     }
 
-    player_ctrl.translation = Some(direction * time.delta_seconds() * 2.5);
+    player_ctrl.translation = Some(direction * time.delta_seconds() * 4.0);
 }
 
 fn player_kick(
     mut player_query: Query<&mut Transform, With<Player>>,
-    mut camera_query: Query<&mut Transform, (With<PlayerCamera>, Without<Player>)>,
     mut kick_timer: ResMut<KickTimer>,
     keyboard: Res<Input<KeyCode>>,
     time: Res<Time>,
 ) {
     let mut player_tf = player_query.single_mut();
-    let mut camera_tf = camera_query.single_mut();
 
     kick_timer
         .0
@@ -216,12 +231,10 @@ fn player_kick(
 
     if keyboard.just_pressed(KeyCode::Space) {
         player_tf.rotate_x(-FRAC_PI_3);
-        camera_tf.rotate_x(FRAC_PI_2);
         kick_timer.0.reset();
     }
 
     if kick_timer.0.just_finished() && player_tf.rotation.x < 0.0 {
         player_tf.rotate_x(FRAC_PI_3);
-        camera_tf.rotate_x(-FRAC_PI_2);
     }
 }
