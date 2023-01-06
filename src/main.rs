@@ -1,15 +1,15 @@
-use bevy::{prelude::*, render::view::RenderLayers};
+use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_rapier3d::prelude::*;
-use marks::{Ball, Floor, GameCamera, Player};
+use marks::{Ball, Floor, GameCamera, Player, ScoreText};
 use simula_viz::{
     grid::{Grid, GridBundle, GridPlugin},
     lines::{LineMesh, LinesMaterial, LinesPlugin},
 };
-use std::{f32::consts::FRAC_PI_3, time::Duration};
 
 mod marks;
+mod player;
 
 const BOARD_DIM: (f32, f32, f32) = (10.0, 0.1, 20.0);
 const GOAL_GAP: f32 = 2.0;
@@ -25,13 +25,18 @@ fn main() {
         .add_plugin(LinesPlugin)
         .add_startup_system(setup_system)
         .add_startup_system(setup_physics)
-        .add_system(move_player)
-        .add_system(player_kick)
+        .add_plugin(player::PlayerPlugin)
+        .add_system(goal_system)
         .run();
 }
 
 #[derive(Resource)]
 struct KickTimer(Timer);
+
+#[derive(Resource)]
+struct Score {
+    goals: u32,
+}
 
 fn setup_system(
     mut commands: Commands,
@@ -85,6 +90,9 @@ fn setup_system(
 
     // kick timer resource
     commands.insert_resource(KickTimer(Timer::from_seconds(0.25, TimerMode::Once)));
+
+    // score resource
+    commands.insert_resource(Score { goals: 0 });
 }
 
 fn setup_physics(
@@ -176,6 +184,7 @@ fn setup_physics(
             ..default()
         },
         RigidBody::Fixed,
+        Collider::cuboid(0.5, 0.5, 0.5),
         Name::new("EnemyGoalRight"),
     ));
     commands.spawn((
@@ -189,52 +198,108 @@ fn setup_physics(
             ..default()
         },
         RigidBody::Fixed,
+        Collider::cuboid(0.5, 0.5, 0.5),
         Name::new("EnemyGoalLeft"),
+    ));
+
+    // spawn a left side wall
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(1., 2.0, BOARD_DIM.2))),
+            material: materials.add(StandardMaterial {
+                base_color: Color::RED,
+                ..default()
+            }),
+            transform: Transform::from_xyz((BOARD_DIM.0 / 2.0) + 0.5, -1.0, 0.),
+            ..default()
+        },
+        RigidBody::Fixed,
+        Collider::cuboid(0.5, 1.0, BOARD_DIM.2 / 2.0),
+        Name::new("LeftSideWall"),
+    ));
+
+    // spawn a right side wall
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(1., 2.0, BOARD_DIM.2))),
+            material: materials.add(StandardMaterial {
+                base_color: Color::RED,
+                ..default()
+            }),
+            transform: Transform::from_xyz(-(BOARD_DIM.0 / 2.0) - 0.5, -1.0, 0.),
+            ..default()
+        },
+        RigidBody::Fixed,
+        Collider::cuboid(0.5, 1.0, BOARD_DIM.2 / 2.0),
+        Name::new("RightSideWall"),
+    ));
+
+    // spawn a back wall
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(BOARD_DIM.0, 2.0, 0.2))),
+            material: materials.add(StandardMaterial {
+                base_color: Color::RED,
+                ..default()
+            }),
+            transform: Transform::from_xyz(0., -1.0, -(BOARD_DIM.2 / 2.0) - 0.2),
+            visibility: Visibility { is_visible: false },
+            ..default()
+        },
+        RigidBody::Fixed,
+        Collider::cuboid(BOARD_DIM.0 / 2.0, 1.0, 0.2),
+        Name::new("BackWall"),
+    ));
+
+    // spawn a front wall
+    commands
+        .spawn((
+            PbrBundle {
+                mesh: meshes.add(Mesh::from(shape::Box::new(BOARD_DIM.0, 2.0, 0.2))),
+                material: materials.add(StandardMaterial {
+                    base_color: Color::RED,
+                    ..default()
+                }),
+                transform: Transform::from_xyz(0., -1.0, (BOARD_DIM.2 / 2.0) + 0.2),
+                visibility: Visibility { is_visible: false },
+                ..default()
+            },
+            RigidBody::Fixed,
+            Collider::cuboid(BOARD_DIM.0 / 2.0, 1.0, 0.2),
+            Name::new("FrontWall"),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Collider::cuboid(GOAL_GAP - 0.5, 1.0, 0.2),
+                Sensor,
+                ActiveCollisionTypes::default() | ActiveCollisionTypes::DYNAMIC_STATIC,
+                ActiveEvents::COLLISION_EVENTS,
+                Name::new("GoalCollider"),
+                Transform::from_xyz(0.0, 0.0, -1.6),
+            ));
+        });
+
+    // spawn a text2dbundle
+    commands.spawn((
+        TextBundle::from_section(
+            "Score: 0",
+            TextStyle {
+                font: asset_server.load("fonts/RubikSprayPaint-Regular.ttf"),
+                font_size: 40.0,
+                color: Color::WHITE,
+            },
+        )
+        .with_text_alignment(TextAlignment::TOP_RIGHT),
+        ScoreText,
+        Name::new("ScoreText"),
     ));
 }
 
-fn move_player(
-    mut player_query: Query<&mut KinematicCharacterController, With<Player>>,
-    keyboard: Res<Input<KeyCode>>,
-    time: Res<Time>,
+fn goal_system(
+    // mut score_query: Query<&mut Text, With<ScoreText>>,
+    mut collision_events: EventReader<CollisionEvent>,
 ) {
-    let mut player_ctrl = player_query.single_mut();
-    let mut direction = Vec3::new(0.0, -1.5, 0.0);
-
-    if keyboard.pressed(KeyCode::W) {
-        direction += Vec3::Z;
-    }
-    if keyboard.pressed(KeyCode::S) {
-        direction -= Vec3::Z;
-    }
-    if keyboard.pressed(KeyCode::A) {
-        direction += Vec3::X;
-    }
-    if keyboard.pressed(KeyCode::D) {
-        direction -= Vec3::X;
-    }
-
-    player_ctrl.translation = Some(direction * time.delta_seconds() * 4.0);
-}
-
-fn player_kick(
-    mut player_query: Query<&mut Transform, With<Player>>,
-    mut kick_timer: ResMut<KickTimer>,
-    keyboard: Res<Input<KeyCode>>,
-    time: Res<Time>,
-) {
-    let mut player_tf = player_query.single_mut();
-
-    kick_timer
-        .0
-        .tick(Duration::from_secs_f32(time.delta_seconds()));
-
-    if keyboard.just_pressed(KeyCode::Space) {
-        player_tf.rotate_x(-FRAC_PI_3);
-        kick_timer.0.reset();
-    }
-
-    if kick_timer.0.just_finished() && player_tf.rotation.x < 0.0 {
-        player_tf.rotate_x(FRAC_PI_3);
+    for ev in collision_events.iter() {
+        warn!("Collision event: {:?}", ev);
     }
 }

@@ -12,3 +12,6 @@ pub struct GameCamera;
 
 #[derive(Component)]
 pub struct PlayerCamera;
+
+#[derive(Component)]
+pub struct ScoreText;

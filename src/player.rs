@@ -1,0 +1,57 @@
+use super::{marks::Player, KickTimer};
+use bevy::prelude::*;
+use bevy_rapier3d::prelude::*;
+use std::{f32::consts::FRAC_PI_3, time::Duration};
+pub struct PlayerPlugin;
+
+impl Plugin for PlayerPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_system(move_player).add_system(player_kick);
+    }
+}
+
+fn move_player(
+    mut player_query: Query<&mut KinematicCharacterController, With<Player>>,
+    keyboard: Res<Input<KeyCode>>,
+    time: Res<Time>,
+) {
+    let mut player_ctrl = player_query.single_mut();
+    let mut direction = Vec3::new(0.0, -1.5, 0.0);
+
+    if keyboard.pressed(KeyCode::W) {
+        direction += Vec3::Z;
+    }
+    if keyboard.pressed(KeyCode::S) {
+        direction -= Vec3::Z;
+    }
+    if keyboard.pressed(KeyCode::A) {
+        direction += Vec3::X;
+    }
+    if keyboard.pressed(KeyCode::D) {
+        direction -= Vec3::X;
+    }
+
+    player_ctrl.translation = Some(direction * time.delta_seconds() * 4.0);
+}
+
+fn player_kick(
+    mut player_query: Query<&mut Transform, With<Player>>,
+    mut kick_timer: ResMut<KickTimer>,
+    keyboard: Res<Input<KeyCode>>,
+    time: Res<Time>,
+) {
+    let mut player_tf = player_query.single_mut();
+
+    kick_timer
+        .0
+        .tick(Duration::from_secs_f32(time.delta_seconds()));
+
+    if keyboard.just_pressed(KeyCode::Space) {
+        player_tf.rotate_x(-FRAC_PI_3);
+        kick_timer.0.reset();
+    }
+
+    if kick_timer.0.just_finished() && player_tf.rotation.x < 0.0 {
+        player_tf.rotate_x(FRAC_PI_3);
+    }
+}
