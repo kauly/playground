@@ -1,7 +1,7 @@
-use super::{marks::Player, KickTimer};
+use super::marks::Player;
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
-use std::{f32::consts::FRAC_PI_3, time::Duration};
+use std::f32::consts::FRAC_PI_2;
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
@@ -16,7 +16,7 @@ fn move_player(
     time: Res<Time>,
 ) {
     let mut player_ctrl = player_query.single_mut();
-    let mut direction = Vec3::new(0.0, -1.5, 0.0);
+    let mut direction = Vec3::new(0.0, 0.0, 0.0);
 
     if keyboard.pressed(KeyCode::W) {
         direction += Vec3::Z;
@@ -36,22 +36,15 @@ fn move_player(
 
 fn player_kick(
     mut player_query: Query<&mut Transform, With<Player>>,
-    mut kick_timer: ResMut<KickTimer>,
     keyboard: Res<Input<KeyCode>>,
-    time: Res<Time>,
 ) {
     let mut player_tf = player_query.single_mut();
 
-    kick_timer
-        .0
-        .tick(Duration::from_secs_f32(time.delta_seconds()));
-
     if keyboard.just_pressed(KeyCode::Space) {
-        player_tf.rotate_x(-FRAC_PI_3);
-        kick_timer.0.reset();
+        player_tf.rotate_x(-FRAC_PI_2);
     }
 
-    if kick_timer.0.just_finished() && player_tf.rotation.x < 0.0 {
-        player_tf.rotate_x(FRAC_PI_3);
+    if keyboard.just_released(KeyCode::Space) {
+        player_tf.rotate_x(FRAC_PI_2);
     }
 }
