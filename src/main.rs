@@ -1,14 +1,18 @@
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
-use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_rapier3d::prelude::*;
 use marks::{Ball, EnemyGoal, GameCamera, Player, ScoreText};
-use simula_action::ActionPlugin;
-use simula_camera::orbitcam::*;
 use simula_viz::{
     grid::{Grid, GridBundle, GridPlugin},
     lines::{LineMesh, LinesMaterial, LinesPlugin},
 };
+
+#[cfg(feature = "develop")]
+use bevy_inspector_egui::WorldInspectorPlugin;
+#[cfg(feature = "develop")]
+use simula_action::ActionPlugin;
+#[cfg(feature = "develop")]
+use simula_camera::orbitcam::*;
 
 mod marks;
 mod player;
@@ -17,19 +21,25 @@ const BOARD_DIM: (f32, f32, f32) = (10.0, 0.1, 20.0);
 const GOAL_GAP: f32 = 2.0;
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
+    let mut app = App::new();
+
+    app.add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
-        .add_plugin(RapierDebugRenderPlugin::default())
         .add_plugin(GridPlugin)
-        .add_plugin(LinesPlugin)
+        .add_plugin(LinesPlugin);
+
+    #[cfg(feature = "develop")]
+    app.add_plugin(ActionPlugin)
         .add_plugin(OrbitCameraPlugin)
-        .add_plugin(ActionPlugin)
-        .add_startup_system(setup_system)
+        .add_plugin(RapierDebugRenderPlugin::default())
+        .add_plugin(WorldInspectorPlugin::default());
+
+    #[cfg(not(feature = "develop"))]
+    app.add_plugin(player::PlayerPlugin);
+
+    app.add_startup_system(setup_system)
         .add_startup_system(setup_physics)
-        //     .add_plugin(player::PlayerPlugin)
         .add_system(goal_system)
         .run();
 }
@@ -67,6 +77,7 @@ fn setup_system(
             transform: Transform::from_xyz(-2.5, 5.0, -25.0).looking_at(Vec3::ZERO, Vec3::Y),
             ..default()
         },
+        #[cfg(feature = "develop")]
         OrbitCamera {
             pan_sensitivity: 40.0,
             center: Vec3::ZERO,
@@ -147,6 +158,8 @@ fn setup_physics(
             angular_damping: 1.0,
             linear_damping: 0.5,
         },
+        ActiveCollisionTypes::default() | ActiveCollisionTypes::DYNAMIC_KINEMATIC,
+        ActiveEvents::COLLISION_EVENTS,
         Ball,
         Name::new("ball"),
     ));
@@ -165,6 +178,7 @@ fn setup_physics(
         Collider::capsule_y(0.5, 0.5),
         RigidBody::KinematicPositionBased,
         LockedAxes::TRANSLATION_LOCKED_Y,
+        Restitution::coefficient(1.5),
         KinematicCharacterController {
             autostep: None,
             ..default()
@@ -300,20 +314,31 @@ fn setup_physics(
 fn goal_system(
     mut score_query: Query<&mut Text, With<ScoreText>>,
     mut collision_events: EventReader<CollisionEvent>,
-    mut ball_query: Query<&mut Transform, With<Ball>>,
+    mut ball_query: Query<(Entity, &mut Transform), With<Ball>>,
     mut score: ResMut<Score>,
     enemy_goal_query: Query<Entity, With<EnemyGoal>>,
+    player_query: Query<Entity, With<Player>>,
 ) {
     let enemy_entity = enemy_goal_query.get_single().unwrap();
-    let mut ball_tf = ball_query.get_single_mut().unwrap();
+    let player_entity = player_query.get_single().unwrap();
+
+    let (ball_entity, mut ball_tf) = ball_query.get_single_mut().unwrap();
     let mut score_text = score_query.get_single_mut().unwrap();
 
     for ev in collision_events.iter() {
         if let CollisionEvent::Stopped(a, b, _) = ev {
             if a == &enemy_entity || b == &enemy_entity {
-                ball_tf.translation = Vec3::new(0.0, 4.0, -(BOARD_DIM.2 / 2.0) + 1.0);
+                ball_tf.translation = Vec3::new(0.0, 4.0, 0.0);
                 score.goals += 1;
                 score_text.sections[0].value = format!("Score: {}", score.goals);
+            }
+        }
+
+        if let CollisionEvent::Started(a, b, _) = ev {
+            if (a == &player_entity && b == &ball_entity)
+                || (a == &ball_entity && b == &player_entity)
+            {
+                warn!("Collision detected ball ppll");
             }
         }
     }

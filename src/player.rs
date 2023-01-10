@@ -31,7 +31,7 @@ fn move_player(
         direction -= Vec3::X;
     }
 
-    player_ctrl.translation = Some(direction * time.delta_seconds() * 4.0);
+    player_ctrl.translation = Some(direction * time.delta_seconds() * 8.0);
 }
 
 fn player_kick(
