@@ -3,5 +3,8 @@ provider = ["rust"]
 [phases.setup]
 nixPkgs = ["trunk", "wasm-bindgen-cli"]
 
+[phases.build]
+cmd = "trunk build --release"
+
 [start]
 cmd = "trunk serve"
