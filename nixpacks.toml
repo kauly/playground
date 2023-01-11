@@ -4,7 +4,7 @@ provider = ["rust"]
 nixPkgs = ["...", "openssl", "wasm-bindgen-cli", "trunk"]
  
 [phases.build]
-nixLibs = ["trunk"]
+nixLibs = ["trunk", "rustup", "wasm-bindgen-cli"]
 cmds = ["rustup target add wasm32-unknown-unknown", "trunk build"]
 
 [start]
