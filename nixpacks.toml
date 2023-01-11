@@ -1,7 +1,13 @@
-provider = ["rust", "staticfile"]
+provider = ["rust"]
 
 [phases.setup]
-nixPkgs = ["trunk", "wasm-bindgen-cli"]
-
+nixPkgs = ["...", "openssl", "wasm-bindgen-cli", "trunk"]
+ 
 [phases.build]
+nixLibs = ["trunk"]
 cmds = ["trunk build"]
+
+[start]
+cmd = "cp -r dist/* /usr/share/nginx/html"
+runImage = "nginx:latest"
+onlyIncludeFiles = ['./dist/**/*']
