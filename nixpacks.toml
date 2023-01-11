@@ -5,7 +5,7 @@ nixPkgs = ["...", "openssl", "wasm-bindgen-cli", "trunk"]
  
 [phases.build]
 nixLibs = ["trunk"]
-cmds = ["trunk build"]
+cmds = ["rustup target add wasm32-unknown-unknown", "trunk build"]
 
 [start]
 cmd = "cp -r dist/* /usr/share/nginx/html"
