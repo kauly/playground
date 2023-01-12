@@ -1,13 +1,11 @@
-provider = ["rust"]
+provider = ["staticfile", "rust"]
 
 [phases.setup]
 nixPkgs = ["...", "openssl", "wasm-bindgen-cli", "trunk"]
  
 [phases.build]
 nixLibs = ["trunk"]
-cmds = ["trunk build", "chmod +x start.sh"]
+cmds = ["trunk build --dist site"]
 
-[start]
-cmd = "./start.sh"
-runImage = "nginx:latest"
-onlyIncludeFiles = ["./dist/**/*", "start.sh"]
+[phases.start]
+cmd = ""
