@@ -10,4 +10,4 @@ cmds = ["trunk build"]
 [start]
 cmd = "./start.sh"
 runImage = "nginx:latest"
-onlyIncludeFiles = ["./dist/**/*"]
+onlyIncludeFiles = ["./dist/**/*", "start.sh"]
