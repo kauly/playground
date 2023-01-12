@@ -7,5 +7,5 @@ nixPkgs = ["...", "openssl", "wasm-bindgen-cli", "trunk"]
 nixLibs = ["trunk"]
 cmds = ["trunk build --dist site", "chmod +x start.sh"]
 
-[phases.start]
+[start]
 cmd = "./start.sh"
